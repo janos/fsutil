@@ -63,7 +63,7 @@ func init() {
 
 func TestSubdirFS(t *testing.T) {
 	t.Run("root", func(t *testing.T) {
-		sfs := fsutil.SubdirFS(fsys, "")
+		sfs := fsutil.MustSub(fsys, "")
 
 		for name := range fsys.files {
 			assertFile(t, sfs, "", name)
@@ -71,13 +71,13 @@ func TestSubdirFS(t *testing.T) {
 	})
 
 	t.Run("one subdirs", func(t *testing.T) {
-		sfs := fsutil.SubdirFS(fsys, "filesystem")
+		sfs := fsutil.MustSub(fsys, "filesystem")
 
 		assertFile(t, sfs, "filesystem", "doc.go")
 	})
 
 	t.Run("two subdirs", func(t *testing.T) {
-		sfs := fsutil.SubdirFS(fsys, "cmd/fsutil")
+		sfs := fsutil.MustSub(fsys, "cmd/fsutil")
 
 		assertFile(t, sfs, "cmd/fsutil", "main.go")
 	})

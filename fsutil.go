@@ -8,8 +8,6 @@ package fsutil
 
 import (
 	"io/fs"
-	"path"
-	"path/filepath"
 )
 
 // FSFunc type is an adapter to allow the use of ordinary functions as
@@ -22,15 +20,17 @@ func (f FSFunc) Open(name string) (fs.File, error) {
 	return f(name)
 }
 
-// SubdirFS constructs a new filesystem as a sub-directory of an existing
-// filesystem.
-func SubdirFS(fsys fs.FS, dir string) fs.FS {
+// MustSub constructs a new filesystem as a sub-directory of an existing
+// filesystem. It panics if it fs.Sub returns an error.
+func MustSub(fsys fs.FS, dir string) fs.FS {
 	if dir == "" {
-		dir = "."
+		return fsys
 	}
-	return FSFunc(func(name string) (fs.File, error) {
-		return fsys.Open(filepath.Join(dir, filepath.FromSlash(path.Clean("/"+name))))
-	})
+	f, err := fs.Sub(fsys, dir)
+	if err != nil {
+		panic(err)
+	}
+	return f
 }
 
 // NoDirsFS constructs a new filesystems that does not return directories.
