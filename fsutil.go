@@ -23,9 +23,6 @@ func (f FSFunc) Open(name string) (fs.File, error) {
 // MustSub constructs a new filesystem as a sub-directory of an existing
 // filesystem. It panics if it fs.Sub returns an error.
 func MustSub(fsys fs.FS, dir string) fs.FS {
-	if dir == "" {
-		return fsys
-	}
 	f, err := fs.Sub(fsys, dir)
 	if err != nil {
 		panic(err)

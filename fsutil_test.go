@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"path"
 	"path/filepath"
 	"testing"
 	"time"
@@ -61,16 +62,16 @@ func init() {
 	fsys.setFile("cmd/fsutil/err.go", nil, 0, false, nil, nil, errTest2)
 }
 
-func TestSubdirFS(t *testing.T) {
+func TestMustSub(t *testing.T) {
 	t.Run("root", func(t *testing.T) {
-		sfs := fsutil.MustSub(fsys, "")
+		sfs := fsutil.MustSub(fsys, ".")
 
 		for name := range fsys.files {
 			assertFile(t, sfs, "", name)
 		}
 	})
 
-	t.Run("one subdirs", func(t *testing.T) {
+	t.Run("one subdir", func(t *testing.T) {
 		sfs := fsutil.MustSub(fsys, "filesystem")
 
 		assertFile(t, sfs, "filesystem", "doc.go")
@@ -104,7 +105,7 @@ func TestNoDirsFS(t *testing.T) {
 	}
 
 	t.Run("stat error", func(t *testing.T) {
-		if _, err := ndfs.Open("cmd/fsutil/err.go"); err != errTest2 {
+		if _, err := ndfs.Open(path.Clean("cmd/fsutil/err.go")); err != errTest2 {
 			t.Errorf("got error %v, want %v", err, errTest2)
 		}
 	})
@@ -141,7 +142,7 @@ func assertFile(t *testing.T, sfs fs.FS, dir, name string) {
 
 	got, err := sfs.Open(name)
 	if err != want.err {
-		t.Fatalf("got open error %v, want %v", err, want.err)
+		t.Fatalf("got open %q error %v, want %v", name, err, want.err)
 	}
 	if err == nil && got != want {
 		t.Errorf("got file %q %v, want %v", name, got, want)
@@ -159,6 +160,7 @@ func newMockFS() *mockFS {
 }
 
 func (f *mockFS) Open(name string) (fs.File, error) {
+	name = filepath.Clean(name)
 	mf, ok := f.files[name]
 	if !ok {
 		return nil, errNotFound
@@ -170,6 +172,7 @@ func (f *mockFS) Open(name string) (fs.File, error) {
 }
 
 func (f *mockFS) setFile(name string, data []byte, mode fs.FileMode, isDir bool, sys interface{}, err, startErr error) {
+	name = filepath.Clean(name)
 	f.files[name] = &mockFile{
 		info: mockFileInfo{
 			name:    name,
