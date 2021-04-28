@@ -12,13 +12,17 @@ import (
 	"io"
 	"io/fs"
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 
 	"resenje.org/fsutil"
 )
 
-const permUserWrite fs.FileMode = 0o200
+const (
+	permUserWrite fs.FileMode = 0o200
+	permAllrite   fs.FileMode = 0o222
+)
 
 var (
 	//go:embed testdata
@@ -100,11 +104,18 @@ func TestBackupFS_fromBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	var additionalPerm fs.FileMode
+	if runtime.GOOS == "windows" {
+		additionalPerm = permAllrite
+	} else {
+		additionalPerm = permUserWrite
+	}
+
 	testOpen(t, fsys, fileName, fileContent)
 	testGlob(t, fsys, "assets/*.css", []string{fileName})
-	testReadDir(t, fsys, "assets", dirEntries, permUserWrite)
+	testReadDir(t, fsys, "assets", dirEntries, additionalPerm)
 	testReadFile(t, fsys, fileName, fileContent)
-	testStat(t, fsys, fileName, fileInfo, permUserWrite)
+	testStat(t, fsys, fileName, fileInfo, additionalPerm)
 }
 
 func TestBackupFS_fromBackup_afterTimeout(t *testing.T) {
@@ -161,6 +172,7 @@ func testOpen(t *testing.T, fsys fs.FS, name, wantContent string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer f.Close()
 	content, err := io.ReadAll(f)
 	if err != nil {
 		t.Fatal(err)
