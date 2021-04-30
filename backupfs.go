@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -26,11 +27,12 @@ var (
 	_ fs.StatFS     = (*BackupFS)(nil)
 )
 
-// BackupFS implements a filesystem which copies all data from another filesystem
-// to a directory when it is constructed. It uses it as a backup for a given
-// timeout value in case files in the original filesystem change. The intended
-// usage is with embedded filesystems to temporary preserve older files if they
-// are needed shorty after new embedded filesystem with new files is available.
+// BackupFS implements a filesystem which copies all data from another
+// filesystem to a directory when it is constructed. It uses it as a backup for
+// a given time to live value in case files in the original filesystem change.
+// The intended usage is with embedded filesystems to temporary preserve older
+// files if they are needed shorty after new embedded filesystem with new files
+// is available.
 type BackupFS struct {
 	fsys          fs.FS
 	backup        fs.FS
@@ -39,9 +41,16 @@ type BackupFS struct {
 	cleaningErrMu sync.Mutex
 }
 
-// NewBackupFS constructs a new BackupFS for another filesystem, that is copied in
-// dir with the backup timeout.
-func NewBackupFS(fsys fs.FS, dir string, timeout time.Duration) (*BackupFS, error) {
+// NewBackupFS constructs a new BackupFS for another filesystem, that is copied
+// in dir with the backup lifetime.
+//
+// Be aware that the complete dir will be deleted after it is expired. Make sure
+// that it does not contain any relevant
+func NewBackupFS(fsys fs.FS, dir string, ttl time.Duration) (*BackupFS, error) {
+	if !validateDir(dir) {
+		return nil, errors.New("unsupported directory")
+	}
+
 	s := new(BackupFS)
 	s.fsys = fsys
 	s.backup = os.DirFS(dir)
@@ -58,7 +67,7 @@ func NewBackupFS(fsys fs.FS, dir string, timeout time.Duration) (*BackupFS, erro
 	})
 
 	go func() {
-		t := time.NewTimer(timeout)
+		t := time.NewTimer(ttl)
 		defer t.Stop()
 		select {
 		case <-t.C:
@@ -233,4 +242,22 @@ func uniqueDirEntry(e []fs.DirEntry) []fs.DirEntry {
 		}
 	}
 	return e[:n]
+}
+
+func validateDir(dir string) bool {
+	dir = filepath.Clean(dir)
+	pathSeparator := string(os.PathSeparator)
+	for _, n := range []string{
+		"",
+		".",
+		"..",
+		pathSeparator,
+		"." + pathSeparator,
+		pathSeparator + ".",
+	} {
+		if dir == n {
+			return false
+		}
+	}
+	return !strings.HasSuffix(dir, pathSeparator+"..")
 }

@@ -25,41 +25,26 @@ const (
 )
 
 var (
-	//go:embed testdata
-	testdataFS      embed.FS
-	testdataEmptyFS embed.FS // just an empty filesystem
-	assetsFS        = fsutil.MustSub(testdataFS, "testdata")
-)
-
-var (
-	fileName      = "assets/main.abcd12.css"
-	fileContent   = "body { color: green; }"
-	fileInfo, _   = fs.Stat(assetsFS, fileName)
-	dirEntries, _ = fs.ReadDir(assetsFS, "assets")
+	//go:embed testdata/backupfs
+	testdataBackupFS embed.FS
+	assetsBackupFS   = fsutil.MustSub(testdataBackupFS, "testdata/backupfs")
 )
 
 func TestBackupFS(t *testing.T) {
 	backupDir := t.TempDir()
 
-	fsys, err := fsutil.NewBackupFS(assetsFS, backupDir, time.Hour)
+	fsys, err := fsutil.NewBackupFS(assetsBackupFS, backupDir, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	fileName, fileContent, fileInfo, dirEntries := backupFSFiles(t)
 
 	testOpen(t, fsys, fileName, fileContent)
 	testGlob(t, fsys, "assets/*.css", []string{fileName})
 	testReadDir(t, fsys, "assets", dirEntries, 0)
 	testReadFile(t, fsys, fileName, fileContent)
 	testStat(t, fsys, fileName, fileInfo, 0)
-}
-
-func TestBackupFS_NotExist(t *testing.T) {
-	backupDir := t.TempDir()
-
-	fsys, err := fsutil.NewBackupFS(assetsFS, backupDir, time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	testOpenNotExist(t, fsys, "someOtherName.txt")
 	testGlob(t, fsys, "someOtherName.*", []string{})
@@ -71,7 +56,7 @@ func TestBackupFS_NotExist(t *testing.T) {
 func TestBackupFS_expiry(t *testing.T) {
 	backupDir := t.TempDir()
 
-	fsys, err := fsutil.NewBackupFS(assetsFS, backupDir, 10*time.Millisecond)
+	fsys, err := fsutil.NewBackupFS(assetsBackupFS, backupDir, 10*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,6 +69,8 @@ func TestBackupFS_expiry(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Error("timeout waiting for backup to be cleaned")
 	}
+
+	fileName, fileContent, fileInfo, dirEntries := backupFSFiles(t)
 
 	testOpen(t, fsys, fileName, fileContent)
 	testGlob(t, fsys, "assets/*.css", []string{fileName})
@@ -95,11 +82,11 @@ func TestBackupFS_expiry(t *testing.T) {
 func TestBackupFS_fromBackup(t *testing.T) {
 	backupDir := t.TempDir()
 
-	if _, err := fsutil.NewBackupFS(assetsFS, backupDir, time.Hour); err != nil {
+	if _, err := fsutil.NewBackupFS(assetsBackupFS, backupDir, time.Hour); err != nil {
 		t.Fatal(err)
 	}
 
-	fsys, err := fsutil.NewBackupFS(testdataEmptyFS, backupDir, time.Hour)
+	fsys, err := fsutil.NewBackupFS(new(embed.FS), backupDir, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,6 +98,8 @@ func TestBackupFS_fromBackup(t *testing.T) {
 		additionalPerm = permUserWrite
 	}
 
+	fileName, fileContent, fileInfo, dirEntries := backupFSFiles(t)
+
 	testOpen(t, fsys, fileName, fileContent)
 	testGlob(t, fsys, "assets/*.css", []string{fileName})
 	testReadDir(t, fsys, "assets", dirEntries, additionalPerm)
@@ -121,11 +110,11 @@ func TestBackupFS_fromBackup(t *testing.T) {
 func TestBackupFS_fromBackup_afterTimeout(t *testing.T) {
 	backupDir := t.TempDir()
 
-	if _, err := fsutil.NewBackupFS(assetsFS, backupDir, 10*time.Millisecond); err != nil {
+	if _, err := fsutil.NewBackupFS(assetsBackupFS, backupDir, 10*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 
-	fsys, err := fsutil.NewBackupFS(testdataEmptyFS, backupDir, 10*time.Millisecond)
+	fsys, err := fsutil.NewBackupFS(new(embed.FS), backupDir, 10*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,6 +128,8 @@ func TestBackupFS_fromBackup_afterTimeout(t *testing.T) {
 		t.Error("timeout waiting for backup to be cleaned")
 	}
 
+	fileName, _, _, _ := backupFSFiles(t)
+
 	testOpenNotExist(t, fsys, fileName)
 	testGlob(t, fsys, "assets/*.css", []string{})
 	testReadDirNotExist(t, fsys, "assets")
@@ -149,20 +140,38 @@ func TestBackupFS_fromBackup_afterTimeout(t *testing.T) {
 func TestBackupFS_overwriteFiles(t *testing.T) {
 	backupDir := t.TempDir()
 
-	if _, err := fsutil.NewBackupFS(assetsFS, backupDir, time.Hour); err != nil {
+	if _, err := fsutil.NewBackupFS(assetsBackupFS, backupDir, time.Hour); err != nil {
 		t.Fatal(err)
 	}
 
-	fsys, err := fsutil.NewBackupFS(assetsFS, backupDir, time.Hour)
+	fsys, err := fsutil.NewBackupFS(assetsBackupFS, backupDir, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	fileName, fileContent, fileInfo, dirEntries := backupFSFiles(t)
 
 	testOpen(t, fsys, fileName, fileContent)
 	testGlob(t, fsys, "assets/*.css", []string{fileName})
 	testReadDir(t, fsys, "assets", dirEntries, 0)
 	testReadFile(t, fsys, fileName, fileContent)
 	testStat(t, fsys, fileName, fileInfo, 0)
+}
+
+func backupFSFiles(t *testing.T) (fileName, fileContent string, fileInfo fs.FileInfo, dirEntries []fs.DirEntry) {
+	t.Helper()
+
+	fileName = "assets/main.45b416.css"
+
+	fileInfo, err := fs.Stat(assetsBackupFS, fileName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirEntries, err = fs.ReadDir(assetsBackupFS, "assets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fileName, "body { color: green; }", fileInfo, dirEntries
 }
 
 func testOpen(t *testing.T, fsys fs.FS, name, wantContent string) {
@@ -227,7 +236,7 @@ func testReadDir(t *testing.T, fsys fs.ReadDirFS, dir string, want []fs.DirEntry
 
 	got, err := fsys.ReadDir(dir)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatal("read dir", err)
 	}
 	if len(got) != len(want) {
 		t.Errorf("got %v elements, want %v", len(got), len(want))
@@ -245,11 +254,11 @@ func testReadDir(t *testing.T, fsys fs.ReadDirFS, dir string, want []fs.DirEntry
 		}
 		gotFileInfo, err := e.Info()
 		if err != nil {
-			t.Fatal(err)
+			t.Fatal("got info", err)
 		}
 		wantFileInfo, err := want[i].Info()
 		if err != nil {
-			t.Fatal(err)
+			t.Fatal("want info", err)
 		}
 		testFileInfo(t, gotFileInfo, wantFileInfo, additionalPerm)
 	}
