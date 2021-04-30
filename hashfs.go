@@ -94,7 +94,7 @@ func (s *HashFS) ReadDir(name string) ([]fs.DirEntry, error) {
 			n++
 			continue
 		}
-		canonicalName, hash, err := s.canonicalName(filepath.Join(name, e.Name()))
+		canonicalName, hash, err := s.canonicalName(filepath.ToSlash(filepath.Join(name, e.Name())))
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				continue
