@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -90,6 +89,11 @@ func (s *HashFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	}
 	var n int
 	for _, e := range r {
+		if e.IsDir() {
+			r[n] = e
+			n++
+			continue
+		}
 		canonicalName, hash, err := s.canonicalName(filepath.Join(name, e.Name()))
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
@@ -142,7 +146,7 @@ func (s *HashFS) HashedPath(name string) (string, error) {
 }
 
 func (s *HashFS) canonicalName(name string) (canonicalName string, hash string, err error) {
-	d, f := path.Split(name)
+	d, f := filepath.Split(name)
 
 	parts := strings.Split(f, ".")
 	f = ""
@@ -195,7 +199,7 @@ func (s *HashFS) hashedPath(name, hash string) string {
 		return name
 	}
 
-	d, f := path.Split(name)
+	d, f := filepath.Split(name)
 
 	i := strings.LastIndex(f, ".")
 	if i > 0 {
@@ -224,7 +228,7 @@ func (s *HashFS) hash(name string) (string, error) {
 		return "", fmt.Errorf("stat file: %w", err)
 	}
 	if fi.IsDir() {
-		return "", fs.ErrNotExist
+		return "", nil // empty hash for directories
 	}
 
 	h, err = s.hasher.Hash(fr)

@@ -26,16 +26,17 @@ func TestHashFS(t *testing.T) {
 	// Open
 	testOpen(t, fsys, "assets/main.45b416.css", "body { color: green; }")
 	testOpen(t, fsys, "assets/main.8559e1.css", "body { color: blue; }")
+	testOpen(t, fsys, "assets", "")
 	testOpenNotExist(t, fsys, "assets/main.012345.css")
 	testOpenNotExist(t, fsys, "assets/main.css")
 	testOpenNotExist(t, fsys, "passwords.txt")
-	testOpenNotExist(t, fsys, "assets")
 
 	// Glob
-	testGlob(t, fsys, "assets/*.css", []string{
+	testGlob(t, fsys, "assets/*", []string{
 		"assets/main.012345.847f70.css",
 		"assets/main.45b416.css",
 		"assets/main.8559e1.css",
+		"assets/subdir",
 	})
 
 	// ReadDir
@@ -61,7 +62,6 @@ func TestHashFS(t *testing.T) {
 	testReadFileNotExist(t, fsys, "assets/main.012345.css")
 	testReadFileNotExist(t, fsys, "assets/main.css")
 	testReadFileNotExist(t, fsys, "passwords.txt")
-	testReadFileNotExist(t, fsys, "assets")
 
 	// Stat
 	fileInfo, err := fs.Stat(assetsHashFS, "assets/main.45b416.css")
@@ -79,23 +79,23 @@ func TestHashFS(t *testing.T) {
 		t.Fatal(err)
 	}
 	testStat(t, fsys, "assets/main.012345.847f70.css", fsutil.NewFileInfo(fileInfo, "main.012345.847f70.css"), 0)
+	fileInfo, err = fs.Stat(assetsHashFS, "assets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	testStat(t, fsys, "assets", fileInfo, 0)
 	testStatNotExist(t, fsys, "assets/main.012345.css")
 	testStatNotExist(t, fsys, "assets/main.css")
 	testStatNotExist(t, fsys, "passwords.txt")
-	testStatNotExist(t, fsys, "assets")
 
 	// HashedPath
 	testHashedPath(t, fsys, "assets/main.css", "assets/main.8559e1.css")
 	testHashedPath(t, fsys, "assets/main.8559e1.css", "assets/main.8559e1.css")
 	testHashedPath(t, fsys, "assets/main.45b416.css", "assets/main.45b416.css")
 	testHashedPath(t, fsys, "assets/main.012345.css", "assets/main.012345.847f70.css")
-	for _, p := range []string{
-		"passwords.txt",
-		"assets",
-	} {
-		if _, err := fsys.HashedPath(p); !errors.Is(err, fs.ErrNotExist) {
-			t.Fatalf("got error %v for file %q, want %v", err, p, fs.ErrNotExist)
-		}
+	testHashedPath(t, fsys, "assets", "assets")
+	if _, err := fsys.HashedPath("passwords.txt"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("got error %v for file %q, want %v", err, "passwords.txt", fs.ErrNotExist)
 	}
 }
 

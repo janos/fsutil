@@ -182,9 +182,16 @@ func testOpen(t *testing.T, fsys fs.FS, name, wantContent string) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	content, err := io.ReadAll(f)
+	fi, err := f.Stat()
 	if err != nil {
 		t.Fatal(err)
+	}
+	var content []byte
+	if !fi.IsDir() {
+		content, err = io.ReadAll(f)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	if string(content) != wantContent {
 		t.Errorf("got content %q, want %q", string(content), wantContent)
