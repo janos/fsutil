@@ -21,9 +21,8 @@ import (
 var fsys *mockFS // global filesystem used by some of the tests
 
 var (
-	errNotFound = errors.New("file not found")
-	errTest1    = errors.New("test1")
-	errTest2    = errors.New("test2")
+	errTest1 = errors.New("test1")
+	errTest2 = errors.New("test2")
 )
 
 func TestFSFunc(t *testing.T) {
@@ -60,6 +59,8 @@ func init() {
 	fsys.setFile("cmd/fsutil/main.go", []byte("package main"), 0, false, nil, nil, nil)
 	fsys.setFile("cmd/fsutil/cmd.go", nil, 0, false, nil, errTest1, nil)
 	fsys.setFile("cmd/fsutil/err.go", nil, 0, false, nil, nil, errTest2)
+	fsys.setFile("public", nil, fs.ModeDir, true, nil, nil, nil)
+	fsys.setFile("public/index.html", []byte("<h1>Hello!</h1>"), 0, false, nil, nil, nil)
 }
 
 func TestMustSub(t *testing.T) {
@@ -109,6 +110,31 @@ func TestNoDirsFS(t *testing.T) {
 			t.Errorf("got error %v, want %v", err, errTest2)
 		}
 	})
+}
+
+func TestOnlyDirsWithIndexHTMLFS(t *testing.T) {
+	ifs := fsutil.OnlyDirsWithIndexHTMLFS(fsys)
+
+	for name, f := range fsys.files {
+		if f.info.err != nil {
+			continue
+		}
+		info, err := f.Stat()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !info.IsDir() {
+			assertFile(t, ifs, "", name)
+			continue
+		}
+		if name == "public" {
+			assertFile(t, ifs, "", "public/index.html")
+			continue
+		}
+		if _, err := ifs.Open(name); err != fs.ErrNotExist {
+			t.Errorf("got error %v for file %q, want %v", err, name, fs.ErrNotExist)
+		}
+	}
 }
 
 func TestReadFileFS(t *testing.T) {
@@ -163,7 +189,7 @@ func (f *mockFS) Open(name string) (fs.File, error) {
 	name = filepath.Clean(name)
 	mf, ok := f.files[name]
 	if !ok {
-		return nil, errNotFound
+		return nil, fs.ErrNotExist
 	}
 	if mf.err != nil {
 		return nil, mf.err

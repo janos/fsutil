@@ -7,7 +7,9 @@
 package fsutil
 
 import (
+	"errors"
 	"io/fs"
+	"path/filepath"
 )
 
 // FSFunc type is an adapter to allow the use of ordinary functions as
@@ -30,7 +32,9 @@ func MustSub(fsys fs.FS, dir string) fs.FS {
 	return f
 }
 
-// NoDirsFS constructs a new filesystems that does not return directories.
+// NoDirsFS constructs a new filesystems that does not return directories. his
+// filesystem can be used for http.FileServer in order to disable directory
+// listing and serving index.html as directories.
 func NoDirsFS(fsys fs.FS) fs.FS {
 	return FSFunc(func(name string) (fs.File, error) {
 		f, err := fsys.Open(name)
@@ -43,6 +47,32 @@ func NoDirsFS(fsys fs.FS) fs.FS {
 		}
 		if info.IsDir() {
 			return nil, fs.ErrNotExist
+		}
+		return f, nil
+	})
+}
+
+// OnlyDirsWithIndexHTMLFS returns a filesystem that returns only directories
+// that have index.html file in them. This filesystem can be used for
+// http.FileServer in order to disable directory listing but still preserve
+// serving index.html as the content for the directory.
+func OnlyDirsWithIndexHTMLFS(fsys fs.FS) fs.FS {
+	return FSFunc(func(name string) (fs.File, error) {
+		f, err := fsys.Open(name)
+		if err != nil {
+			return nil, err
+		}
+		info, err := f.Stat()
+		if err != nil {
+			return nil, err
+		}
+		if info.IsDir() {
+			if s, err := fs.Stat(fsys, filepath.ToSlash(filepath.Join(name, "index.html"))); err != nil {
+				if errors.Is(err, fs.ErrNotExist) || s.IsDir() {
+					return nil, fs.ErrNotExist
+				}
+				return nil, err
+			}
 		}
 		return f, nil
 	})
