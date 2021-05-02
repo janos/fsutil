@@ -47,6 +47,7 @@ type BackupFS struct {
 // Be aware that the complete dir will be deleted after it is expired. Make sure
 // that it does not contain any relevant
 func NewBackupFS(fsys fs.FS, dir string, ttl time.Duration) (*BackupFS, error) {
+	dir = filepath.Clean(dir)
 	if !validateDir(dir) {
 		return nil, errors.New("unsupported directory")
 	}
@@ -88,11 +89,15 @@ func (s *BackupFS) Open(name string) (fs.File, error) {
 	f, err := s.fsys.Open(name)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return s.backup.Open(name)
+			f, err := s.backup.Open(name)
+			if err != nil {
+				return nil, err
+			}
+			return newBackupFile(name, f, s.backup), nil
 		}
 		return nil, err
 	}
-	return f, nil
+	return newBackupFile(name, f, s.backup), nil
 }
 
 // Glob implements fs.GlobFS interface.
@@ -245,7 +250,6 @@ func uniqueDirEntry(e []fs.DirEntry) []fs.DirEntry {
 }
 
 func validateDir(dir string) bool {
-	dir = filepath.Clean(dir)
 	pathSeparator := string(os.PathSeparator)
 	for _, n := range []string{
 		"",
@@ -260,4 +264,92 @@ func validateDir(dir string) bool {
 		}
 	}
 	return !strings.HasSuffix(dir, pathSeparator+"..")
+}
+
+type backupFile struct {
+	name string
+	fs.File
+	backupFS fs.FS
+
+	initialized bool
+	isDir       bool
+	backupFile  fs.ReadDirFile
+}
+
+func newBackupFile(name string, f fs.File, backupFS fs.FS) *backupFile {
+	return &backupFile{
+		name:     name,
+		File:     f,
+		backupFS: backupFS,
+	}
+}
+
+// ReadDir reads the contents of the directory and returns
+// a slice of up to n DirEntry values in directory order.
+// Subsequent calls on the same file will yield further DirEntry values.
+//
+// If n > 0, ReadDir returns an error as not supported argument.
+//
+// If n <= 0, ReadDir returns all the DirEntry values from the directory
+// in a single slice. In this case, if ReadDir succeeds (reads all the way
+// to the end of the directory), it returns the slice and a nil error.
+// If it encounters an error before the end of the directory,
+// ReadDir returns the DirEntry list read until that point and a non-nil error.
+func (f *backupFile) ReadDir(n int) ([]fs.DirEntry, error) {
+	dir, ok := f.File.(fs.ReadDirFile)
+	if !ok {
+		return nil, &fs.PathError{Op: "readdir", Path: f.name, Err: errors.New("not implemented")}
+	}
+
+	if !f.initialized {
+		s, err := f.File.Stat()
+		if err != nil {
+			return nil, err
+		}
+		f.isDir = s.IsDir()
+		bf, err := f.backupFS.Open(f.name)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+		if dir, ok := bf.(fs.ReadDirFile); ok {
+			f.backupFile = dir
+		}
+		f.initialized = true
+	}
+
+	if !f.isDir {
+		return nil, errors.New("not a directory")
+	}
+
+	if n >= 0 {
+		return nil, &fs.PathError{Op: "readdir", Path: f.name, Err: errors.New("BackupFS File does not support positive arguments for ReadDir")}
+	}
+
+	if f.backupFile == nil {
+		return dir.ReadDir(n)
+	}
+
+	r, err := dir.ReadDir(n)
+	if err != nil {
+		return nil, err
+	}
+	rc, err := f.backupFile.ReadDir(n)
+	if err != nil {
+		return nil, err
+	}
+	r = append(r, rc...)
+	sort.SliceStable(r, func(i, j int) bool {
+		return r[i].Name() < r[j].Name()
+	})
+	return uniqueDirEntry(r), nil
+}
+
+func (f *backupFile) Close() error {
+	if err := f.File.Close(); err != nil {
+		return err
+	}
+	if f.backupFile != nil {
+		return f.backupFile.Close()
+	}
+	return nil
 }

@@ -6,9 +6,17 @@
 package fsutil_test
 
 import (
+	"bytes"
 	"embed"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
+	"math/rand"
+	"os"
+	"path/filepath"
+	"sort"
 	"testing"
 
 	"resenje.org/fsutil"
@@ -97,6 +105,98 @@ func TestHashFS(t *testing.T) {
 	if _, err := fsys.HashedPath("passwords.txt"); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("got error %v for file %q, want %v", err, "passwords.txt", fs.ErrNotExist)
 	}
+}
+
+func TestHashFS_File_ReadDir(t *testing.T) {
+	dir := t.TempDir()
+
+	fsys := fsutil.NewHashFS(os.DirFS(dir), fsutil.NewMD5Hasher(8))
+
+	if err := os.MkdirAll(filepath.Join(dir, "assets"), os.ModePerm); err != nil {
+		t.Fatal(err)
+	}
+
+	var files []string
+	for i, b := 0, make([]byte, 12); i < 20; i++ {
+		if _, err := rand.Read(b); err != nil {
+			t.Fatal(err)
+		}
+		name := hex.EncodeToString(b)
+		f, err := os.OpenFile(filepath.Join(dir, "assets", name), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o666)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := rand.Read(b); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.Copy(f, bytes.NewReader(b)); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+		hashedName, err := fsys.HashedPath(filepath.ToSlash(filepath.Join("assets", name)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, filepath.Base(hashedName))
+	}
+
+	sort.Strings(files)
+
+	t.Run("all", func(t *testing.T) {
+		f, err := fsys.Open("assets")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+
+		fd := f.(fs.ReadDirFile)
+
+		r, err := fd.ReadDir(-1)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var got []string
+		for _, e := range r {
+			got = append(got, e.Name())
+		}
+		sort.Strings(got)
+
+		if fmt.Sprint(got) != fmt.Sprint(files) {
+			t.Errorf("got files %v, want %v", got, files)
+		}
+	})
+
+	t.Run("partial", func(t *testing.T) {
+		f, err := fsys.Open("assets")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+
+		fd := f.(fs.ReadDirFile)
+
+		var got []string
+		for {
+			r, err := fd.ReadDir(rand.Intn(7))
+			if err != nil && !errors.Is(err, io.EOF) {
+				t.Fatal(err)
+			}
+			for _, e := range r {
+				got = append(got, e.Name())
+			}
+			if errors.Is(err, io.EOF) {
+				break
+			}
+		}
+		sort.Strings(got)
+
+		if fmt.Sprint(got) != fmt.Sprint(files) {
+			t.Errorf("got files %v, want %v", got, files)
+		}
+	})
 }
 
 func testHashedPath(t *testing.T, fsys *fsutil.HashFS, name, hashedName string) {

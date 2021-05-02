@@ -7,12 +7,17 @@ package fsutil_test
 
 import (
 	"embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"math/rand"
+	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
+	"sort"
 	"testing"
 	"time"
 
@@ -313,6 +318,113 @@ func testFileInfo(t *testing.T, got, want fs.FileInfo, additionalPerm fs.FileMod
 		t.Errorf("got Size %v, want %v", got.Size(), want.Size())
 	}
 	// ModTime is not preserved.
+}
+
+func TestBackupFS_File_ReadDir(t *testing.T) {
+	dir := t.TempDir()
+	backupDir := t.TempDir()
+
+	if err := os.Mkdir(filepath.Join(dir, "assets"), 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(backupDir, "assets"), 0o777); err != nil {
+		t.Fatal(err)
+	}
+
+	var files []string
+	var fsFiles []string
+	for i, b := 0, make([]byte, 12); i < 20; i++ {
+		if _, err := rand.Read(b); err != nil {
+			t.Fatal(err)
+		}
+		name := hex.EncodeToString(b)
+		d := dir
+		if i%3 != 0 {
+			d = backupDir
+		}
+		f, err := os.Create(filepath.Join(d, "assets", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, name)
+		if d == dir {
+			fsFiles = append(fsFiles, name)
+		}
+	}
+
+	sort.Strings(files)
+	sort.Strings(fsFiles)
+
+	t.Run("all", func(t *testing.T) {
+		fsys, err := fsutil.NewBackupFS(os.DirFS(dir), backupDir, time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		f, err := fsys.Open("assets")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+
+		fd := f.(fs.ReadDirFile)
+
+		r, err := fd.ReadDir(-1)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var got []string
+		for _, e := range r {
+			got = append(got, e.Name())
+		}
+
+		if fmt.Sprint(got) != fmt.Sprint(files) {
+			t.Errorf("got files %v, want %v", got, files)
+		}
+	})
+
+	t.Run("all after expire", func(t *testing.T) {
+		fsys, err := fsutil.NewBackupFS(os.DirFS(dir), backupDir, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		select {
+		case <-fsys.Cleaned():
+			if err := fsys.CleaningErr(); err != nil {
+				t.Errorf("clean error: %v", err)
+			}
+		case <-time.After(30 * time.Second):
+			t.Error("timeout waiting for backup to be cleaned")
+		}
+
+		f, err := fsys.Open("assets")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+
+		fd := f.(fs.ReadDirFile)
+
+		r, err := fd.ReadDir(-1)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var got []string
+		for _, e := range r {
+			got = append(got, e.Name())
+		}
+
+		sort.Strings(got)
+		if fmt.Sprint(got) != fmt.Sprint(fsFiles) {
+			t.Errorf("got files %v, want %v", got, fsFiles)
+		}
+	})
 }
 
 func Test_uniqueStrings(t *testing.T) {
