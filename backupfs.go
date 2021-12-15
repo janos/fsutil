@@ -353,3 +353,11 @@ func (f *backupFile) Close() error {
 	}
 	return nil
 }
+
+func (f *backupFile) Seek(offset int64, whence int) (int64, error) {
+	s, ok := f.File.(io.Seeker)
+	if !ok {
+		return 0, errors.New("backup file missing seek function")
+	}
+	return s.Seek(offset, whence)
+}

@@ -8,6 +8,7 @@ package fsutil
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"path/filepath"
 	"strings"
@@ -379,4 +380,12 @@ func (f *hashFile) ReadDir(n int) ([]fs.DirEntry, error) {
 		i++
 	}
 	return r[:i], nil
+}
+
+func (f *hashFile) Seek(offset int64, whence int) (int64, error) {
+	s, ok := f.File.(io.Seeker)
+	if !ok {
+		return 0, errors.New("hash file missing seek function")
+	}
+	return s.Seek(offset, whence)
 }
